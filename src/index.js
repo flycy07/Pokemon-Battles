@@ -13,6 +13,7 @@ const { Battle } = require('./battle');
 const { randomTeam, cacheSize } = require('./pokeapi');
 const { createStatusServer } = require('./status');
 const { battlePayload, moveMenu, switchMenu, challengeButtons } = require('./ui');
+const { gameCommands, handleGameCommand, handleWildButton, isAllowedChannel, getGameStats } = require('./game');
 
 const TURN_TIMEOUT_MS = 2 * 60 * 1000;
 const CHALLENGE_TIMEOUT_MS = 60 * 1000;
@@ -35,7 +36,7 @@ const commands = [
         .addUserOption((o) => o.setName('utente').setDescription("L'avversario").setRequired(true)),
     )
     .addSubcommand((s) => s.setName('annulla').setDescription('Annulla la tua battaglia in corso')),
-].map((c) => c.toJSON());
+].map((c) => c.toJSON()).concat(gameCommands);
 
 // ---------- helpers ----------
 
@@ -88,6 +89,7 @@ async function onTimeout(battle) {
 // ---------- slash command ----------
 
 async function handleCommand(i) {
+  if (!isAllowedChannel(i)) return i.reply({ content: `Puoi usare il bot solo in <#${getGameStats().channelId}>.`, flags: MessageFlags.Ephemeral });
   const sub = i.options.getSubcommand();
 
   if (sub === 'annulla') {
@@ -127,6 +129,7 @@ async function handleCommand(i) {
 // ---------- challenge buttons ----------
 
 async function handleChallenge(i, id, action) {
+  if (!isAllowedChannel(i)) return i.reply({ content: `Puoi usare il bot solo in <#${getGameStats().channelId}>.`, flags: MessageFlags.Ephemeral });
   const ch = challenges.get(id);
   if (!ch) return i.reply({ content: 'Questa sfida non è più valida.', flags: MessageFlags.Ephemeral });
   if (i.user.id !== ch.target.id) {
@@ -175,6 +178,7 @@ async function handleChallenge(i, id, action) {
 // ---------- battle buttons ----------
 
 async function handleBattle(i, bid, kind, arg) {
+  if (!isAllowedChannel(i)) return i.reply({ content: `Puoi usare il bot solo in <#${getGameStats().channelId}>.`, flags: MessageFlags.Ephemeral });
   const battle = battles.get(bid);
   if (!battle) return i.reply({ content: 'Questa battaglia è terminata.', flags: MessageFlags.Ephemeral });
 
@@ -224,12 +228,16 @@ async function handleBattle(i, bid, kind, arg) {
 
 client.on(Events.InteractionCreate, async (i) => {
   try {
-    if (i.isChatInputCommand() && i.commandName === 'battaglia') return await handleCommand(i);
+    if (i.isChatInputCommand()) {
+      if (i.commandName === 'battaglia') return await handleCommand(i);
+      return await handleGameCommand(i);
+    }
 
     if (i.isButton()) {
       const [scope, id, kind, arg] = i.customId.split(':');
       if (scope === 'c') return await handleChallenge(i, id, kind);
       if (scope === 'b') return await handleBattle(i, id, kind, arg);
+      if (scope === 'wild') return await handleWildButton(i);
     }
   } catch (err) {
     console.error('Errore interazione:', err);
