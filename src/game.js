@@ -47,8 +47,7 @@ function gameCommands() {
       .addSubcommand(s => s.setName('usa').setDescription('Usa una pozione sul tuo Pokémon attivo')
         .addStringOption(o => o.setName('oggetto').setDescription('Oggetto').setRequired(true).addChoices({ name: 'Pozione', value: 'potion' })))
       .addSubcommand(s => s.setName('pubblica').setDescription('Pubblica lo shop in un canale')
-        .addChannelOption(o => o.setName('canale').setDescription('Canale in cui pubblicare lo shop').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))
-        .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)),
+        .addChannelOption(o => o.setName('canale').setDescription('Canale in cui pubblicare lo shop').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))),
     new SlashCommandBuilder().setName('squadra').setDescription('Mostra i Pokémon catturati'),
     new SlashCommandBuilder().setName('trade').setDescription('Scambia un Pokémon con un altro giocatore')
       .addUserOption(o => o.setName('utente').setDescription('Giocatore con cui scambiare').setRequired(true))
