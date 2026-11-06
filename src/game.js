@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const { buildMon, randomTeam } = require('./pokeapi');
 
 const DATA_FILE = path.join(process.env.DATA_DIR || process.cwd(), 'data.json');
@@ -18,6 +18,8 @@ function save() {
 }
 load();
 const encounters = new Map();
+const trades = new Map();
+const userTrades = new Map();
 const prices = { pokeball: 100, potion: 50 };
 const labels = { pokeball: 'Poké Ball', potion: 'Pozione' };
 function profile(id) {
@@ -45,6 +47,9 @@ function gameCommands() {
       .addSubcommand(s => s.setName('usa').setDescription('Usa una pozione sul tuo Pokémon attivo')
         .addStringOption(o => o.setName('oggetto').setDescription('Oggetto').setRequired(true).addChoices({ name: 'Pozione', value: 'potion' }))),
     new SlashCommandBuilder().setName('squadra').setDescription('Mostra i Pokémon catturati'),
+    new SlashCommandBuilder().setName('trade').setDescription('Scambia un Pokémon con un altro giocatore')
+      .addUserOption(o => o.setName('utente').setDescription('Giocatore con cui scambiare').setRequired(true))
+      .addIntegerOption(o => o.setName('pokemon').setDescription('Numero del tuo Pokémon mostrato da /squadra').setRequired(true).setMinValue(1).setMaxValue(25)),
     new SlashCommandBuilder().setName('canale').setDescription('Configura il canale autorizzato')
       .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
       .addSubcommand(s => s.setName('set').setDescription('Imposta l’unico canale in cui usare il bot')
@@ -86,6 +91,7 @@ async function begin(i) {
 async function handleGameCommand(i) {
   if (!allowed(i)) return i.reply({ content: `Puoi usare il bot solo in <#${STORE.channelId}>.`, flags: MessageFlags.Ephemeral });
   if (i.commandName === 'selvatico') return begin(i);
+  if (i.commandName === 'trade') return startTrade(i);
   if (i.commandName === 'canale') {
     const channel = i.options.getChannel('canale');
     STORE.channelId = channel.id; save();
@@ -112,6 +118,114 @@ async function handleGameCommand(i) {
     return i.reply({ content: `🧪 ${mon.name} recupera ${healed} PS. Pozioni rimaste: ${u.inventory[item]}.`, flags: MessageFlags.Ephemeral });
   }
 }
+
+function tradeRows(id, mode) {
+  if (mode === 'request') return [new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(\`trade:\${id}:accept\`).setLabel('Accetta').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(\`trade:\${id}:reject\`).setLabel('Rifiuta').setStyle(ButtonStyle.Danger)
+  )];
+  if (mode === 'confirm') return [new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(\`trade:\${id}:confirm\`).setLabel('Conferma scambio').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(\`trade:\${id}:cancel\`).setLabel('Annulla').setStyle(ButtonStyle.Danger)
+  )];
+  return [];
+}
+function clearTrade(t) {
+  clearTimeout(t.timer);
+  trades.delete(t.id);
+  userTrades.delete(t.fromId);
+  userTrades.delete(t.toId);
+}
+function tradeSummary(t) {
+  return \`🔁 **Proposta di scambio**\n<@\${t.fromId}> offre **\${t.fromPokemon.name}**\n<@\${t.toId}> offre **\${t.toPokemon.name}**\n\nEntrambi devono premere **Conferma scambio** per completare.\`;
+}
+async function startTrade(i) {
+  const target = i.options.getUser('utente');
+  const number = i.options.getInteger('pokemon');
+  if (target.bot || target.id === i.user.id) return i.reply({ content: 'Scegli un altro giocatore, non un bot o te stesso.', flags: MessageFlags.Ephemeral });
+  if (userTrades.has(i.user.id) || userTrades.has(target.id)) return i.reply({ content: 'Tu o l’altro giocatore avete già uno scambio in corso.', flags: MessageFlags.Ephemeral });
+  const from = profile(i.user.id), to = profile(target.id);
+  const offered = from.team[number - 1];
+  if (!offered) return i.reply({ content: 'Numero Pokémon non valido. Controlla /squadra.', flags: MessageFlags.Ephemeral });
+  if (!to.team.length) return i.reply({ content: 'L’altro giocatore non ha ancora Pokémon da scambiare.', flags: MessageFlags.Ephemeral });
+  const id = crypto.randomBytes(4).toString('hex');
+  const t = { id, fromId: i.user.id, toId: target.id, fromPokemon: offered, toPokemon: null, confirmations: new Set(), message: null, timer: null };
+  trades.set(id, t);
+  userTrades.set(t.fromId, id);
+  userTrades.set(t.toId, id);
+  await i.reply({ content: \`<@\${target.id}>, <@\${i.user.id}> vuole scambiare **\${offered.name}** con te. Hai 2 minuti per rispondere.\`, components: tradeRows(id, 'request'), allowedMentions: { users: [target.id, i.user.id] } });
+  t.message = await i.fetchReply();
+  t.timer = setTimeout(() => {
+    if (!trades.has(id)) return;
+    clearTrade(t);
+    t.message.edit({ content: '⌛ Richiesta di scambio scaduta.', components: [] }).catch(() => {});
+  }, 120000);
+}
+async function handleTradeInteraction(i) {
+  const [, id, action] = i.customId.split(':');
+  const t = trades.get(id);
+  if (!t) return i.reply({ content: 'Questo scambio non è più attivo.', flags: MessageFlags.Ephemeral });
+  if (action === 'accept') {
+    if (i.user.id !== t.toId) return i.reply({ content: 'Solo il giocatore invitato può accettare.', flags: MessageFlags.Ephemeral });
+    clearTimeout(t.timer);
+    const team = profile(t.toId).team;
+    const menu = new StringSelectMenuBuilder()
+      .setCustomId(\`trade:\${id}:pick\`)
+      .setPlaceholder('Scegli il Pokémon da offrire')
+      .addOptions(team.slice(0, 25).map((p, n) => ({
+        label: \`\${n + 1}. \${p.name}\`.slice(0, 100),
+        value: String(n),
+        description: \`\${p.hp}/\${p.maxHp} PS\`.slice(0, 100)
+      })));
+    t.timer = setTimeout(() => {
+      if (!trades.has(id)) return;
+      clearTrade(t);
+      t.message.edit({ content: '⌛ Scambio scaduto.', components: [] }).catch(() => {});
+    }, 120000);
+    return i.update({ content: \`<@\${t.toId}>, scegli il Pokémon da offrire in cambio di **\${t.fromPokemon.name}**.\`, components: [new ActionRowBuilder().addComponents(menu)] });
+  }
+  if (action === 'reject') {
+    if (i.user.id !== t.toId) return i.reply({ content: 'Solo il giocatore invitato può rifiutare.', flags: MessageFlags.Ephemeral });
+    clearTrade(t);
+    return i.update({ content: '❌ Richiesta di scambio rifiutata.', components: [] });
+  }
+  if (action === 'pick') {
+    if (i.user.id !== t.toId) return i.reply({ content: 'Solo il giocatore invitato può scegliere il Pokémon.', flags: MessageFlags.Ephemeral });
+    const selected = profile(t.toId).team[Number(i.values[0])];
+    if (!selected) return i.reply({ content: 'Pokémon non trovato. Avvia un nuovo scambio.', flags: MessageFlags.Ephemeral });
+    t.toPokemon = selected;
+    t.confirmations.clear();
+    t.timer = setTimeout(() => {
+      if (!trades.has(id)) return;
+      clearTrade(t);
+      t.message.edit({ content: '⌛ Scambio scaduto.', components: [] }).catch(() => {});
+    }, 180000);
+    return i.update({ content: tradeSummary(t), components: tradeRows(id, 'confirm') });
+  }
+  if (action === 'cancel') {
+    if (i.user.id !== t.fromId && i.user.id !== t.toId) return i.reply({ content: 'Non partecipi a questo scambio.', flags: MessageFlags.Ephemeral });
+    clearTrade(t);
+    return i.update({ content: '🚫 Scambio annullato. Nessun Pokémon è stato trasferito.', components: [] });
+  }
+  if (action === 'confirm') {
+    if (i.user.id !== t.fromId && i.user.id !== t.toId) return i.reply({ content: 'Non partecipi a questo scambio.', flags: MessageFlags.Ephemeral });
+    if (!t.toPokemon) return i.reply({ content: 'Prima scegli il Pokémon da offrire.', flags: MessageFlags.Ephemeral });
+    t.confirmations.add(i.user.id);
+    if (t.confirmations.size < 2) return i.update({ content: \`\${tradeSummary(t)}\n\n✅ <@\${i.user.id}> ha confermato. In attesa dell’altro giocatore.\`, components: tradeRows(id, 'confirm') });
+    const a = profile(t.fromId), b = profile(t.toId);
+    const ai = a.team.indexOf(t.fromPokemon), bi = b.team.indexOf(t.toPokemon);
+    if (ai < 0 || bi < 0) {
+      clearTrade(t);
+      return i.update({ content: 'Scambio annullato: uno dei Pokémon non è più disponibile.', components: [] });
+    }
+    a.team.splice(ai, 1, t.toPokemon);
+    b.team.splice(bi, 1, t.fromPokemon);
+    save();
+    clearTrade(t);
+    return i.update({ content: \`🎉 Scambio completato! <@\${t.fromId}> ha ricevuto **\${t.toPokemon.name}** e <@\${t.toId}> ha ricevuto **\${t.fromPokemon.name}**.\`, components: [] });
+  }
+}
+
 async function handleWildButton(i) {
   if (!allowed(i)) return i.reply({ content: `Puoi usare il bot solo in <#${STORE.channelId}>.`, flags: MessageFlags.Ephemeral });
   const [, id, action, arg] = i.customId.split(':');
@@ -154,4 +268,4 @@ async function handleWildButton(i) {
     return i.update({ ...encounterPayload(e), content: log });
   }
 }
-module.exports = { gameCommands, handleGameCommand, handleWildButton, isAllowedChannel: allowed, getGameStats: () => ({ channelId: STORE.channelId, encounters: encounters.size }) };
+module.exports = { gameCommands, handleGameCommand, handleWildButton, handleTradeInteraction, isAllowedChannel: allowed, getGameStats: () => ({ channelId: STORE.channelId, encounters: encounters.size }) };
