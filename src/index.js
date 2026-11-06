@@ -13,7 +13,7 @@ const { Battle } = require('./battle');
 const { randomTeam, cacheSize } = require('./pokeapi');
 const { createStatusServer } = require('./status');
 const { battlePayload, moveMenu, switchMenu, challengeButtons } = require('./ui');
-const { gameCommands, handleGameCommand, handleWildButton, isAllowedChannel, getGameStats } = require('./game');
+const { gameCommands, handleGameCommand, handleWildButton, handleTradeInteraction, isAllowedChannel, getGameStats } = require('./game');
 
 const TURN_TIMEOUT_MS = 2 * 60 * 1000;
 const CHALLENGE_TIMEOUT_MS = 60 * 1000;
@@ -233,11 +233,14 @@ client.on(Events.InteractionCreate, async (i) => {
       return await handleGameCommand(i);
     }
 
+    if (i.isStringSelectMenu() && i.customId.startsWith('trade:')) return await handleTradeInteraction(i);
+
     if (i.isButton()) {
       const [scope, id, kind, arg] = i.customId.split(':');
       if (scope === 'c') return await handleChallenge(i, id, kind);
       if (scope === 'b') return await handleBattle(i, id, kind, arg);
       if (scope === 'wild') return await handleWildButton(i);
+      if (scope === 'trade') return await handleTradeInteraction(i);
     }
   } catch (err) {
     console.error('Errore interazione:', err);
