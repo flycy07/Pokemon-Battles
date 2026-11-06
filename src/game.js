@@ -4,13 +4,14 @@ const crypto = require('node:crypto');
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const { buildMon, randomTeam } = require('./pokeapi');
 
-const DATA_FILE = path.join(process.cwd(), 'data.json');
+const DATA_FILE = path.join(process.env.DATA_DIR || process.cwd(), 'data.json');
 const STORE = { users: {}, channelId: null };
 function load() {
   try { const saved = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); STORE.users = saved.users || {}; STORE.channelId = saved.channelId || null; }
   catch (e) { if (e.code !== 'ENOENT') console.error('Lettura data.json:', e); }
 }
 function save() {
+  fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
   const tmp = DATA_FILE + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(STORE, null, 2));
   fs.renameSync(tmp, DATA_FILE);
@@ -106,6 +107,7 @@ async function handleGameCommand(i) {
   }
 }
 async function handleWildButton(i) {
+  if (!allowed(i)) return i.reply({ content: `Puoi usare il bot solo in <#${STORE.channelId}>.`, flags: MessageFlags.Ephemeral });
   const [, id, action, arg] = i.customId.split(':');
   const e = encounters.get(i.user.id);
   if (!e || e.id !== id) return i.reply({ content: 'Questo incontro non è più attivo.', flags: MessageFlags.Ephemeral });
