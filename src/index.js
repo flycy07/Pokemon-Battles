@@ -36,7 +36,7 @@ const commands = [
         .addUserOption((o) => o.setName('utente').setDescription("L'avversario").setRequired(true)),
     )
     .addSubcommand((s) => s.setName('annulla').setDescription('Annulla la tua battaglia in corso')),
-].map((c) => c.toJSON()).concat(gameCommands);
+].map((c) => c.toJSON()).concat(gameCommands());
 
 // ---------- helpers ----------
 
