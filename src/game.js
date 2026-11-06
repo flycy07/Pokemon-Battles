@@ -24,9 +24,15 @@ function profile(id) {
   if (!STORE.users[id]) STORE.users[id] = { coins: 200, inventory: { pokeball: 3, potion: 2 }, team: [] };
   return STORE.users[id];
 }
-function allowed(i) {
-  if (!STORE.channelId || i.commandName === 'canale') return true;
+function isInConfiguredChannel(i) {
+  if (!STORE.channelId) return true;
   return i.channelId === STORE.channelId;
+}
+function allowed(i) {
+  // Solo gli incontri selvatici sono vincolati al canale configurato.
+  // Shop, squadra, trade e configurazione restano utilizzabili negli altri canali.
+  if (i.commandName !== 'selvatico' && !i.customId?.startsWith('wild:')) return true;
+  return isInConfiguredChannel(i);
 }
 function gameCommands() {
   return [
