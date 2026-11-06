@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, MessageFlags, PermissionFlagsBits, ChannelType } = require('discord.js');
 const { buildMon, randomTeam } = require('./pokeapi');
 
 const DATA_FILE = path.join(process.env.DATA_DIR || process.cwd(), 'data.json');
@@ -45,7 +45,10 @@ function gameCommands() {
           { name: 'Poké Ball (100 monete)', value: 'pokeball' }, { name: 'Pozione (50 monete)', value: 'potion' }))
         .addIntegerOption(o => o.setName('quantita').setDescription('Quantità').setMinValue(1).setMaxValue(20)))
       .addSubcommand(s => s.setName('usa').setDescription('Usa una pozione sul tuo Pokémon attivo')
-        .addStringOption(o => o.setName('oggetto').setDescription('Oggetto').setRequired(true).addChoices({ name: 'Pozione', value: 'potion' }))),
+        .addStringOption(o => o.setName('oggetto').setDescription('Oggetto').setRequired(true).addChoices({ name: 'Pozione', value: 'potion' })))
+      .addSubcommand(s => s.setName('pubblica').setDescription('Pubblica lo shop in un canale')
+        .addChannelOption(o => o.setName('canale').setDescription('Canale in cui pubblicare lo shop').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)),
     new SlashCommandBuilder().setName('squadra').setDescription('Mostra i Pokémon catturati'),
     new SlashCommandBuilder().setName('trade').setDescription('Scambia un Pokémon con un altro giocatore')
       .addUserOption(o => o.setName('utente').setDescription('Giocatore con cui scambiare').setRequired(true))
@@ -56,6 +59,35 @@ function gameCommands() {
         .addChannelOption(o => o.setName('canale').setDescription('Canale autorizzato').setRequired(true))),
   ].map(c => c.toJSON());
 }
+
+function shopPayload() {
+  const embed = new EmbedBuilder()
+    .setColor(0x3498db)
+    .setTitle('🛒 Pokémon Shop')
+    .setDescription('Usa i pulsanti numerati per acquistare gli oggetti. Ogni pressione acquista **1 unità**.\n\n🪙 Le monete si guadagnano vincendo gli scontri!')
+    .addFields(
+      { name: '1️⃣ — Poké Ball', value: '100 monete\nServe per catturare Pokémon selvatici.', inline: true },
+      { name: '2️⃣ — Pozione', value: '50 monete\nRecupera fino a 20 PS al tuo Pokémon.', inline: true }
+    )
+    .setFooter({ text: 'Gli acquisti vengono accreditati direttamente nel tuo inventario.' });
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('shop:buy:pokeball').setLabel('1 · Poké Ball').setEmoji('⚾').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('shop:buy:potion').setLabel('2 · Pozione').setEmoji('🧪').setStyle(ButtonStyle.Success)
+  );
+  return { embeds: [embed], components: [row] };
+}
+async function handleShopButton(i) {
+  const item = i.customId.split(':')[2];
+  if (!prices[item]) return i.reply({ content: 'Oggetto non valido.', flags: MessageFlags.Ephemeral });
+  const u = profile(i.user.id);
+  const price = prices[item];
+  if (u.coins < price) return i.reply({ content: `Non hai abbastanza monete: servono ${price}, ne hai ${u.coins}.`, flags: MessageFlags.Ephemeral });
+  u.coins -= price;
+  u.inventory[item] = (u.inventory[item] || 0) + 1;
+  save();
+  return i.reply({ content: `✅ Hai acquistato **${labels[item]}** per ${price} monete!\n🪙 Saldo: ${u.coins}\n📦 Quantità posseduta: ${u.inventory[item]}.`, flags: MessageFlags.Ephemeral });
+}
+
 function hpBar(mon) { return '🟥'.repeat(Math.max(0, Math.round(10 * mon.hp / mon.maxHp))) + '⬛'.repeat(10 - Math.max(0, Math.round(10 * mon.hp / mon.maxHp))); }
 function encounterPayload(e) {
   const p = e.mon, w = e.wild;
@@ -103,7 +135,14 @@ async function handleGameCommand(i) {
     return i.reply({ content: `🪙 ${u.coins} monete\n⚾ Poké Ball: ${u.inventory.pokeball} · 🧪 Pozioni: ${u.inventory.potion}\n${lines.join('\n')}`, flags: MessageFlags.Ephemeral });
   }
   if (i.commandName === 'shop') {
-    const sub = i.options.getSubcommand(), u = profile(i.user.id);
+    const sub = i.options.getSubcommand();
+    if (sub === 'pubblica') {
+      if (!i.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) return i.reply({ content: 'Serve il permesso Gestisci server per pubblicare lo shop.', flags: MessageFlags.Ephemeral });
+      const channel = i.options.getChannel('canale');
+      await channel.send(shopPayload());
+      return i.reply({ content: `🛒 Shop pubblicato in ${channel}!`, flags: MessageFlags.Ephemeral });
+    }
+    const u = profile(i.user.id);
     if (sub === 'compra') {
       const item = i.options.getString('oggetto'), qty = i.options.getInteger('quantita') || 1, total = prices[item] * qty;
       if (u.coins < total) return i.reply({ content: `Non hai abbastanza monete. Servono ${total}, ne hai ${u.coins}.`, flags: MessageFlags.Ephemeral });
@@ -268,4 +307,4 @@ async function handleWildButton(i) {
     return i.update({ ...encounterPayload(e), content: log });
   }
 }
-module.exports = { gameCommands, handleGameCommand, handleWildButton, handleTradeInteraction, isAllowedChannel: allowed, getGameStats: () => ({ channelId: STORE.channelId, encounters: encounters.size }) };
+module.exports = { gameCommands, handleGameCommand, handleWildButton, handleTradeInteraction, handleShopButton, isAllowedChannel: allowed, getGameStats: () => ({ channelId: STORE.channelId, encounters: encounters.size }) };
