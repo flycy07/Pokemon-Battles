@@ -39,3 +39,20 @@ Sul piano free il Web Service va in sleep dopo 15 minuti senza richieste HTTP e 
 - `https://<tuo-servizio>.onrender.com/health` — JSON, 200 se il bot è connesso a Discord, 503 altrimenti
 
 Su [UptimeRobot](https://uptimerobot.com) crea un monitor **HTTP(s)** sull'URL e intervallo di 5 minuti. Usa `/health` se vuoi essere avvisato quando il bot è disconnesso da Discord, `/` se ti basta tenere sveglio il servizio.
+
+
+## Avventura, catture e negozio
+
+Oltre alle sfide 3v3, ora puoi giocare anche in modalità avventura:
+
+- `/selvatico` — incontra un Pokémon selvatico, combatti con il tuo Pokémon e prova a catturarlo con una Poké Ball. Il primo utilizzo ti assegna un Pokémon iniziale.
+- `/shop compra oggetto quantità` — compra Poké Ball (100 monete) e Pozioni (50 monete).
+- `/shop usa oggetto:potion` — usa una Pozione per recuperare fino a 20 PS al primo Pokémon ferito della squadra.
+- `/squadra` — mostra monete, strumenti e Pokémon catturati.
+- Le vittorie contro i selvatici danno 50 monete; una sconfitta dà 15 monete.
+
+I progressi (squadra, monete, inventario e canale autorizzato) vengono salvati in `data.json`. Per conservare i progressi nei deploy su Render, configura un Persistent Disk montato su `/var/data` e imposta la variabile d'ambiente `DATA_DIR=/var/data`.
+
+## Canale autorizzato
+
+Un amministratore con il permesso **Gestisci server** può eseguire `/canale set canale:#nome-canale`. Da quel momento i comandi e i pulsanti del bot funzionano solo nel canale scelto. Il comando `/canale` resta utilizzabile dagli amministratori per cambiare la destinazione.
