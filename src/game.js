@@ -111,6 +111,7 @@ async function handleWildButton(i) {
   if (!e || e.id !== id) return i.reply({ content: 'Questo incontro non è più attivo.', flags: MessageFlags.Ephemeral });
   if (action === 'run') { encounters.delete(i.user.id); return i.update({ content: 'Sei fuggito. Alla prossima!', embeds: [], components: [] }); }
   if (action === 'catch') {
+    if (e.wild.hp <= 0) return i.reply({ content: 'Il Pokémon è esausto e non può essere catturato.', flags: MessageFlags.Ephemeral });
     if (!e.user.inventory.pokeball) return i.reply({ content: 'Non hai Poké Ball! Comprane con /shop compra.', flags: MessageFlags.Ephemeral });
     e.user.inventory.pokeball--;
     const chance = Math.min(0.9, 0.2 + (1 - e.wild.hp / e.wild.maxHp) * 0.65);
@@ -145,4 +146,4 @@ async function handleWildButton(i) {
     return i.update({ ...encounterPayload(e), content: log });
   }
 }
-module.exports = { gameCommands, handleGameCommand, handleWildButton, getGameStats: () => ({ channelId: STORE.channelId, encounters: encounters.size }) };
+module.exports = { gameCommands, handleGameCommand, handleWildButton, isAllowedChannel: allowed, getGameStats: () => ({ channelId: STORE.channelId, encounters: encounters.size }) };
