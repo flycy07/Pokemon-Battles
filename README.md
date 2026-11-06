@@ -51,7 +51,7 @@ Oltre alle sfide 3v3, ora puoi giocare anche in modalità avventura:
 - `/squadra` — mostra monete, strumenti e Pokémon catturati.
 - Le vittorie contro i selvatici danno 50 monete; una sconfitta dà 15 monete.
 
-I progressi (squadra, monete, inventario e canale autorizzato) vengono salvati in `data.json`. Per conservare i progressi nei deploy su Render, configura un Persistent Disk e mantieni il file nella directory persistente.
+I progressi (squadra, monete, inventario e canale autorizzato) vengono salvati in `data.json`. Per conservare i progressi nei deploy su Render, configura un Persistent Disk montato su `/var/data` e imposta la variabile d'ambiente `DATA_DIR=/var/data`.
 
 ## Canale autorizzato
 
